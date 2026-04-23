@@ -634,8 +634,10 @@ async fn run_shell(socket: WebSocket, name: String, query: ShellQuery, state: Sh
     anyhow::ensure!(slave_fd >= 0, "open slave PTY failed");
 
     // Spawn docker exec with PTY slave as stdio
+    // Try bash first (has readline/history), fall back to sh
     let mut std_cmd = std::process::Command::new("docker");
-    std_cmd.args(["exec", "-it", &container_name, "sh"])
+    std_cmd.args(["exec", "-it", &container_name,
+        "sh", "-c", "command -v bash > /dev/null 2>&1 && exec bash || exec sh"])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());

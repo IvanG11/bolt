@@ -489,6 +489,7 @@ async function doAction(name, action) {
     const data = await res.json()
     if (data && !data.ok) actionError.value = data.error
     await fetchProjects({ silent: true })
+    if (drawerName.value === name) fetchDrawerInfo(name)
   } finally {
     busy.value = { ...busy.value, [name]: false }
   }
