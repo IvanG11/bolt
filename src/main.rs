@@ -12,7 +12,8 @@ fn main() -> anyhow::Result<()> {
 
     let needs_config = matches!(
         cli.command,
-        Commands::Switch { .. } | Commands::List { .. } | Commands::Stop
+        Commands::Switch { .. } | Commands::Start { .. } | Commands::List { .. }
+        | Commands::Stop | Commands::Ui { .. } | Commands::Build { .. }
     );
     if needs_config && !config.is_configured() {
         commands::onboarding::run(&mut config)?;
@@ -22,7 +23,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Setup => {
             commands::onboarding::run(&mut config)?;
         }
-        Commands::Switch { project, keep } => {
+        Commands::Switch { project } => {
             let project = match project {
                 Some(p) => p,
                 None => {
@@ -38,7 +39,25 @@ fn main() -> anyhow::Result<()> {
                     projects[idx].clone()
                 }
             };
-            commands::switch::run(&project, keep, &config)?;
+            commands::switch::run(&project, false, &config)?;
+        }
+        Commands::Start { project } => {
+            let project = match project {
+                Some(p) => p,
+                None => {
+                    let projects = commands::list::projects(&config)?;
+                    if projects.is_empty() {
+                        eprintln!("No projects found in {}", config.projects_dir.display());
+                        std::process::exit(1);
+                    }
+                    let idx = dialoguer::FuzzySelect::new()
+                        .with_prompt("Start")
+                        .items(&projects)
+                        .interact()?;
+                    projects[idx].clone()
+                }
+            };
+            commands::switch::run(&project, true, &config)?;
         }
         Commands::List { raw } => {
             if raw {
@@ -54,6 +73,12 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Restart { project } => {
             commands::switch::restart(&project, &config)?;
+        }
+        Commands::Build { project } => {
+            commands::switch::build(&project, &config)?;
+        }
+        Commands::Ui { port } => {
+            commands::ui::run(config, port)?;
         }
         Commands::Status => {
             commands::status::run()?;

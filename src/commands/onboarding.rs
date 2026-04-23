@@ -61,14 +61,14 @@ fn install_completions(shell: Shell) -> Result<()> {
              function __bolt_projects\n\
              \x20   bolt list --raw 2>/dev/null\n\
              end\n\
-             complete -c bolt -n '__fish_seen_subcommand_from switch restart' -f -a '(__bolt_projects)'\n"
+             complete -c bolt -n '__fish_seen_subcommand_from switch restart build' -f -a '(__bolt_projects)'\n"
         }
         Shell::Zsh => {
             "#compdef bolt\n\
              # bolt project completions\n\
              _bolt() {\n\
              \x20 case $words[2] in\n\
-             \x20   switch|restart)\n\
+             \x20   switch|restart|build)\n\
              \x20     local -a projects\n\
              \x20     projects=(${(f)\"$(bolt list --raw 2>/dev/null)\"})\n\
              \x20     _describe 'project' projects\n\
@@ -81,7 +81,7 @@ fn install_completions(shell: Shell) -> Result<()> {
             "# bolt project completions\n\
              _bolt_completions() {\n\
              \x20 local sub=${COMP_WORDS[1]}\n\
-             \x20 if [[ \"$sub\" == \"switch\" || \"$sub\" == \"restart\" ]]; then\n\
+             \x20 if [[ \"$sub\" == \"switch\" || \"$sub\" == \"restart\" || \"$sub\" == \"build\" ]]; then\n\
              \x20   COMPREPLY=($(compgen -W \"$(bolt list --raw 2>/dev/null)\" -- \"${COMP_WORDS[COMP_CWORD]}\"))\n\
              \x20 fi\n\
              }\n\

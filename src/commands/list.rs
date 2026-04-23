@@ -2,9 +2,84 @@
 use crate::config::Config;
 use anyhow::Result;
 use colored::Colorize;
+use serde::Serialize;
 use std::collections::HashSet;
 use std::path::Path;
 use std::process::Command;
+
+#[derive(Serialize)]
+pub struct SubdirInfo {
+    pub name: String,
+    pub status: String,
+}
+
+#[derive(Serialize)]
+pub struct ProjectInfo {
+    pub name: String,
+    pub status: String,
+    pub subdirs: Vec<SubdirInfo>,
+}
+
+pub fn list_with_status(config: &Config) -> Result<Vec<ProjectInfo>> {
+    let active_dirs = get_active_compose_dirs();
+    let mut result = Vec::new();
+
+    let mut entries: Vec<_> = std::fs::read_dir(&config.projects_dir)?.flatten().collect();
+    entries.sort_by_key(|e| e.file_name());
+
+    for entry in entries {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let path = entry.path();
+
+        if !path.is_dir() || config.ignore.contains(&name) {
+            continue;
+        }
+
+        let compose = path.join("docker-compose.yml");
+        if compose.exists() {
+            let active = is_active(&path, &active_dirs);
+            result.push(ProjectInfo {
+                name,
+                status: if active { "running" } else { "stopped" }.to_string(),
+                subdirs: vec![],
+            });
+        } else {
+            let mut subdirs: Vec<_> = std::fs::read_dir(&path)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter(|s| s.path().join("docker-compose.yml").exists())
+                .collect();
+
+            if subdirs.is_empty() {
+                continue;
+            }
+
+            subdirs.sort_by_key(|s| s.file_name());
+
+            let subdir_infos: Vec<SubdirInfo> = subdirs
+                .iter()
+                .map(|sub| {
+                    let sub_name = sub.file_name().to_string_lossy().to_string();
+                    let sub_active = is_active(&sub.path(), &active_dirs);
+                    SubdirInfo {
+                        name: sub_name,
+                        status: if sub_active { "running" } else { "stopped" }.to_string(),
+                    }
+                })
+                .collect();
+
+            let any_active = subdir_infos.iter().any(|s| s.status == "running");
+            result.push(ProjectInfo {
+                name,
+                status: if any_active { "running" } else { "stopped" }.to_string(),
+                subdirs: subdir_infos,
+            });
+        }
+    }
+
+    Ok(result)
+}
 
 fn get_active_compose_dirs() -> HashSet<String> {
     let output = Command::new("docker")

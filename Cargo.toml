@@ -1,6 +1,6 @@
 [package]
 name = "bolt"
-version = "1.0.1"
+version = "1.1.0"
 edition = "2024"
 description = "CLI to manage Docker projects"
 
@@ -8,8 +8,18 @@ description = "CLI to manage Docker projects"
 clap = { version = "4", features = ["derive"] }
 dialoguer = { version = "0.11", features = ["fuzzy-select"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 toml = "0.8"
 dirs = "5"
 colored = "2"
 anyhow = "1"
 rustyline = { version = "14", features = ["derive"] }
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors"] }
+open = "5"
+async-stream = "0.3"
+futures-core = "0.3"
+futures-util = "0.3"
+libc = "0.2"
+rust-embed = "8"

@@ -14,9 +14,10 @@ pub enum Commands {
     /// Stop all active projects and start the specified one (interactive picker if no project given)
     Switch {
         project: Option<String>,
-        /// Keep other projects running
-        #[arg(long)]
-        keep: bool,
+    },
+    /// Start a project without stopping others (interactive picker if no project given)
+    Start {
+        project: Option<String>,
     },
     /// List available projects in projects_dir
     List {
@@ -31,6 +32,16 @@ pub enum Commands {
     /// Restart a project (down + up) without touching others
     Restart {
         project: String,
+    },
+    /// Rebuild Docker images for a project
+    Build {
+        project: String,
+    },
+    /// Launch the web UI
+    Ui {
+        /// Port for the API server
+        #[arg(long, default_value_t = 7000)]
+        port: u16,
     },
     /// Manage configuration
     Config {

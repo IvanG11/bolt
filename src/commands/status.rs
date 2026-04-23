@@ -1,5 +1,6 @@
 use anyhow::Result;
 use colored::Colorize;
+use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
 use std::process::Command;
 
@@ -8,6 +9,48 @@ struct Container {
     image: String,
     status: String,
     ports: String,
+}
+
+#[derive(Serialize)]
+pub struct ContainerInfo {
+    pub project: String,
+    pub name: String,
+    pub image: String,
+    pub status: String,
+    pub ports: String,
+}
+
+pub fn get_containers() -> Result<Vec<ContainerInfo>> {
+    let output = Command::new("docker")
+        .args([
+            "ps",
+            "--format",
+            "{{.Label \"com.docker.compose.project\"}}§{{.Names}}§{{.Image}}§{{.Status}}§{{.Ports}}",
+        ])
+        .output()?;
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut result = Vec::new();
+
+    for line in text.lines().filter(|l| !l.is_empty()) {
+        let parts: Vec<&str> = line.splitn(5, '§').collect();
+        if parts.len() < 5 {
+            continue;
+        }
+        let project = parts[0].trim();
+        if project.is_empty() {
+            continue;
+        }
+        result.push(ContainerInfo {
+            project: project.to_string(),
+            name: parts[1].trim().to_string(),
+            image: parts[2].trim().to_string(),
+            status: shorten_status(parts[3].trim()),
+            ports: parse_ports(parts[4].trim()),
+        });
+    }
+
+    Ok(result)
 }
 
 /// Extract only host-mapped ports, deduplicate IPv4/IPv6, simplify same-port mappings.

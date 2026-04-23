@@ -34,6 +34,44 @@ sudo make install
 | `bolt config unignore <project>`            | Remove a project from the ignore list                 |
 | `bolt config set-subdirs <project> <s1,s2>` | Define which subdirs to start for a project           |
 | `bolt config clear-subdirs <project>`       | Reset to starting all subdirs                         |
+| `bolt ui`                                   | Launch the web UI (browser opens automatically)       |
+
+## Web UI
+
+`bolt ui` serves the full interface on a single port. The browser opens automatically.
+
+```bash
+bolt ui            # default port 7000
+bolt ui --port 8080
+```
+
+### Running in development
+
+Run the Rust backend and the Vite dev server separately so you get hot-reload on the frontend:
+
+```bash
+# terminal 1 — API server
+cargo run -- ui
+
+# terminal 2 — Vite dev server (proxies /api to localhost:7000)
+cd ui && npm run dev
+# open http://localhost:5173
+```
+
+### Building for production
+
+The frontend is embedded in the binary at compile time. The release workflow handles this automatically — just run:
+
+```bash
+make release
+```
+
+If you need to build the binary locally without the workflow, do it manually:
+
+```bash
+cd ui && npm run build && cd ..
+cargo build --release
+```
 
 ## Shell completions
 
