@@ -38,8 +38,66 @@ struct ApiResult {
     error: Option<String>,
 }
 
-pub fn run(config: Config, port: u16) -> Result<()> {
+fn pid_file() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("bolt")
+        .join("ui.pid")
+}
+
+pub fn run(config: Config, port: u16, daemon: bool, stop: bool) -> Result<()> {
+    if stop {
+        let path = pid_file();
+        let pid_str = std::fs::read_to_string(&path)
+            .map_err(|_| anyhow::anyhow!("No background UI server found (no PID file at {})", path.display()))?;
+        let pid: libc::pid_t = pid_str.trim().parse()
+            .map_err(|_| anyhow::anyhow!("Invalid PID file"))?;
+        let ret = unsafe { libc::kill(pid, libc::SIGTERM) };
+        anyhow::ensure!(ret == 0, "Failed to stop process (PID {}): already stopped?", pid);
+        std::fs::remove_file(&path).ok();
+        println!("Bolt UI stopped (PID {})", pid);
+        return Ok(());
+    }
+
+    if daemon {
+        let url = format!("http://127.0.0.1:{}", port);
+        println!("Bolt UI → {} (background)", url);
+        daemonize(pid_file())?;
+    }
     tokio::runtime::Runtime::new()?.block_on(serve(config, port))
+}
+
+fn daemonize(pid_path: PathBuf) -> Result<()> {
+    unsafe {
+        let pid = libc::fork();
+        anyhow::ensure!(pid >= 0, "fork failed");
+        if pid > 0 {
+            std::process::exit(0);
+        }
+        libc::setsid();
+        let pid2 = libc::fork();
+        anyhow::ensure!(pid2 >= 0, "second fork failed");
+        if pid2 > 0 {
+            std::process::exit(0);
+        }
+        // Write PID of final child
+        let my_pid = libc::getpid();
+        if let Some(parent) = pid_path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        std::fs::write(&pid_path, my_pid.to_string()).ok();
+
+        let dev_null = libc::open(b"/dev/null\0".as_ptr() as *const libc::c_char, libc::O_RDWR);
+        if dev_null >= 0 {
+            libc::dup2(dev_null, 0);
+            libc::dup2(dev_null, 1);
+            libc::dup2(dev_null, 2);
+            if dev_null > 2 {
+                libc::close(dev_null);
+            }
+        }
+    }
+    Ok(())
 }
 
 async fn serve(config: Config, port: u16) -> Result<()> {
@@ -305,6 +363,7 @@ struct PortEntry {
     host_port: u16,
     container_port: u16,
     protocol: String,
+    url: Option<String>,
 }
 
 async fn api_project_info(
@@ -321,6 +380,8 @@ async fn api_project_info(
     let mut ports: Vec<PortEntry> = Vec::new();
 
     for compose_file in &compose_files {
+        let traefik_urls = extract_traefik_urls(compose_file);
+
         let Ok(output) = tokio::process::Command::new("docker")
             .args(["compose", "-f"])
             .arg(compose_file)
@@ -332,16 +393,27 @@ async fn api_project_info(
         };
 
         let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut services_with_ports = std::collections::HashSet::new();
+
         for container in parse_compose_ps(&stdout) {
             let service = container["Service"].as_str().unwrap_or("").to_string();
+            let url = traefik_urls.get(&service).cloned();
             if let Some(publishers) = container["Publishers"].as_array() {
                 for pub_entry in publishers {
                     let host_port = pub_entry["PublishedPort"].as_u64().unwrap_or(0) as u16;
                     let container_port = pub_entry["TargetPort"].as_u64().unwrap_or(0) as u16;
                     let protocol = pub_entry["Protocol"].as_str().unwrap_or("tcp").to_string();
                     if host_port > 0 && seen.insert((host_port, container_port, protocol.clone(), service.clone())) {
-                        ports.push(PortEntry { service: service.clone(), host_port, container_port, protocol });
+                        services_with_ports.insert(service.clone());
+                        ports.push(PortEntry { service: service.clone(), host_port, container_port, protocol, url: url.clone() });
                     }
+                }
+            }
+            // Traefik-only service (no published ports): add a URL-only entry
+            if url.is_some() && !services_with_ports.contains(&service) {
+                services_with_ports.insert(service.clone());
+                if seen.insert((0, 0, String::new(), service.clone())) {
+                    ports.push(PortEntry { service: service.clone(), host_port: 0, container_port: 0, protocol: String::new(), url });
                 }
             }
         }
@@ -732,6 +804,57 @@ async fn run_shell(socket: WebSocket, name: String, query: ShellQuery, state: Sh
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
+
+fn extract_host_from_rule(rule: &str) -> Option<String> {
+    let marker = "Host(`";
+    let start = rule.find(marker)?;
+    let after = start + marker.len();
+    let end = rule[after..].find('`')?;
+    Some(rule[after..after + end].to_string())
+}
+
+fn extract_traefik_urls(compose_file: &std::path::Path) -> std::collections::HashMap<String, String> {
+    let mut urls = std::collections::HashMap::new();
+    let Ok(content) = std::fs::read_to_string(compose_file) else { return urls };
+    let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) else { return urls };
+    let Some(services) = yaml.get("services").and_then(|v| v.as_mapping()) else { return urls };
+
+    for (svc_key, svc_val) in services {
+        let svc_name = svc_key.as_str().unwrap_or("").to_string();
+        let Some(labels) = svc_val.get("labels") else { continue };
+
+        let mut host: Option<String> = None;
+        let mut is_https = false;
+
+        let pairs: Vec<(String, String)> = match labels {
+            serde_yaml::Value::Mapping(m) => m
+                .iter()
+                .filter_map(|(k, v)| Some((k.as_str()?.to_string(), v.as_str()?.to_string())))
+                .collect(),
+            serde_yaml::Value::Sequence(seq) => seq
+                .iter()
+                .filter_map(|item| item.as_str()?.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())))
+                .collect(),
+            _ => continue,
+        };
+
+        for (key, val) in &pairs {
+            if key.contains(".rule") && val.contains("Host(`") && host.is_none() {
+                host = extract_host_from_rule(val);
+            }
+            if key.contains(".entrypoints") && val.contains("websecure") {
+                is_https = true;
+            }
+        }
+
+        if let Some(domain) = host {
+            let scheme = if is_https { "https" } else { "http" };
+            urls.insert(svc_name, format!("{}://{}", scheme, domain));
+        }
+    }
+
+    urls
+}
 
 fn find_compose_files(
     project_dir: &std::path::Path,

@@ -77,8 +77,8 @@ fn main() -> anyhow::Result<()> {
         Commands::Build { project } => {
             commands::switch::build(&project, &config)?;
         }
-        Commands::Ui { port } => {
-            commands::ui::run(config, port)?;
+        Commands::Ui { port, daemon, stop } => {
+            commands::ui::run(config, port, daemon, stop)?;
         }
         Commands::Status => {
             commands::status::run()?;

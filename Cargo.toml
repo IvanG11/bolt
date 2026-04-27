@@ -1,6 +1,6 @@
 [package]
 name = "bolt"
-version = "1.1.1"
+version = "1.2.0"
 edition = "2024"
 description = "CLI to manage Docker projects"
 
@@ -23,3 +23,4 @@ futures-core = "0.3"
 futures-util = "0.3"
 libc = "0.2"
 rust-embed = "8"
+serde_yaml = "0.9"

@@ -42,6 +42,12 @@ pub enum Commands {
         /// Port for the API server
         #[arg(long, default_value_t = 7000)]
         port: u16,
+        /// Run in the background (detach from terminal)
+        #[arg(long, short = 'd')]
+        daemon: bool,
+        /// Stop a running background UI server
+        #[arg(long)]
+        stop: bool,
     },
     /// Manage configuration
     Config {
